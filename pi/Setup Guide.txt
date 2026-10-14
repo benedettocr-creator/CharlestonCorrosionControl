@@ -1,0 +1,59 @@
+ ---
+  Setup Guide
+
+  What the SensorPush HTP.xw provides
+
+  The HTP.xw measures temperature, humidity, and barometric pressure — all three fields the backend ML model needs. The
+  Raspberry Pis pull this data via the SensorPush Cloud API (no GPIO wiring needed).
+
+  ---
+  Step 1 — Get your sensor IDs
+
+  On either Pi, fill in your email/password in find_sensor_ids.py and run it once:
+  python3 find_sensor_ids.py
+  You'll get two IDs like AB12CD34.EF56GH78 — one per HTP.xw sensor.
+
+  ---
+  Step 2 — Configure each Pi
+
+  Edit sensor_reader.py on each Pi. Change only the top config block:
+
+  ┌──────┬─────────────┬─────────────────────────────────────┐
+  │  Pi  │ SENSOR_CODE │        SENSORPUSH_SENSOR_ID         │
+  ├──────┼─────────────┼─────────────────────────────────────┤
+  │ Pi 1 │ "PI_01"     │ ID of sensor near aluminum sample 1 │
+  ├──────┼─────────────┼─────────────────────────────────────┤
+  │ Pi 2 │ "PI_02"     │ ID of sensor near aluminum sample 2 │
+  └──────┴─────────────┴─────────────────────────────────────┘
+
+  Also set BACKEND_URL to your server's IP address.
+
+  ---
+  Step 3 — Install as a background service
+
+  On each Pi:
+  chmod +x install_service.sh
+  sudo ./install_service.sh
+  The reader starts at boot, restarts on failure, and logs to journalctl.
+
+  ---
+  How it works
+
+  - Every 5 minutes, each Pi polls the SensorPush API for its sensor's latest reading
+  - Data is converted and POSTed to POST /sensor-readings/ — exactly what the ML pipeline reads
+  - If the backend is unreachable, readings are saved to a local CSV (readings_PI_0X.csv) so no data is lost
+  - The SensorPush token auto-refreshes before it expires (tokens last ~1 hour)
+
+  ---
+  Data flow to the ML model
+
+  SensorPush HTP.xw
+        │ Bluetooth
+  SensorPush Cloud API
+        │ HTTPS
+    Raspberry Pi  ──────── POST /sensor-readings/ ──────▶  FastAPI Backend
+  (sensor_reader.py)                                         └─ SVM model flags
+                                                                at-risk readings
+
+  The only field left null is the copper/silver coupon data (cu_incr_A_per_24h, etc.) — those need physical corrosion
+  coupons. The ML model currently works with the environmental readings alone.
